@@ -53,6 +53,30 @@ jobs:
           sha256sum "$FW"
           tail -8 arch/arm64/configs/proton_defconfig
 
+      - name: Prepare Clang toolchain
+        run: |
+          AC_DIR="$(realpath "$PWD/..")/toolchains/aospclang"
+          mkdir -p "$AC_DIR"
+          ok=0
+          for url in \
+            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r563880.tar.gz" \
+            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master/clang-r563880.tar.gz"
+          do
+            if curl -fL --retry 3 -o /tmp/clang.tar.gz "$url" && tar -tzf /tmp/clang.tar.gz >/dev/null 2>&1; then
+              tar -xzf /tmp/clang.tar.gz -C "$AC_DIR" && ok=1 && break
+            fi
+          done
+          if [ "$ok" != 1 ]; then
+            echo "AOSP Clang not available, installing LLVM/Clang 20 from apt.llvm.org"
+            rm -rf "$AC_DIR"; mkdir -p "$AC_DIR/bin"
+            wget -q https://apt.llvm.org/llvm.sh && sudo bash llvm.sh 20
+            for f in /usr/lib/llvm-20/bin/*; do ln -sf "$f" "$AC_DIR/bin/$(basename "$f")"; done
+          fi
+          touch "$AC_DIR/bin/aarch64-linux-gnu-elfedit" "$AC_DIR/bin/arm-linux-gnueabi-elfedit"
+          chmod +x "$AC_DIR/bin/aarch64-linux-gnu-elfedit" "$AC_DIR/bin/arm-linux-gnueabi-elfedit"
+          "$AC_DIR/bin/clang" --version
+          "$AC_DIR/bin/ld.lld" --version
+
       - name: Build kernel
         run: |
           export WP="$(realpath "$PWD/..")"
