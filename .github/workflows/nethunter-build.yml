@@ -27,9 +27,30 @@ jobs:
           CONFIG_EXTRA_FIRMWARE_DIR="firmware"
           EOF
           mkdir -p firmware/ath9k_htc
-          curl -fL -o firmware/ath9k_htc/htc_9271-1.4.0.fw \
+          FW=firmware/ath9k_htc/htc_9271-1.4.0.fw
+          for url in \
+            https://gitlab.com/kernel-firmware/linux-firmware/-/raw/main/ath9k_htc/htc_9271-1.4.0.fw \
             https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain/ath9k_htc/htc_9271-1.4.0.fw
+          do
+            curl -fL --retry 3 --connect-timeout 20 -o "$FW" "$url" || { rm -f "$FW"; continue; }
+            if head -c 512 "$FW" | grep -qi "<html\|<!doctype"; then rm -f "$FW"; continue; fi
+            break
+          done
+          if [ ! -s "$FW" ]; then
+            echo "Mirrors failed, taking the firmware from Ubuntu's linux-firmware package"
+            sudo apt-get update -q
+            (cd /tmp && apt-get download linux-firmware)
+            dpkg -x /tmp/linux-firmware_*.deb /tmp/lfw
+            SRC=$(find /tmp/lfw -path "*ath9k_htc/htc_9271-1.4.0.fw*" | head -1)
+            case "$SRC" in
+              *.zst) zstd -d -o "$FW" "$SRC" ;;
+              *.xz)  xz -dc "$SRC" > "$FW" ;;
+              *)     cp "$SRC" "$FW" ;;
+            esac
+          fi
+          test -s "$FW"
           ls -l firmware/ath9k_htc
+          sha256sum "$FW"
           tail -8 arch/arm64/configs/proton_defconfig
 
       - name: Build kernel
