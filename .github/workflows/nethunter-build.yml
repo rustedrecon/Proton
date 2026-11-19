@@ -1,0 +1,55 @@
+name: Build Proton+ NetHunter (AR9271)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+
+      - name: Free up disk space and prepare tools
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          command -v python >/dev/null || sudo ln -sf /usr/bin/python3 /usr/local/bin/python
+
+      - name: Enable AR9271 (ath9k_htc) driver with built-in firmware
+        run: |
+          cat >> arch/arm64/configs/proton_defconfig <<'EOF'
+          # NetHunter: AR9271 USB Wi-Fi (ath9k_htc) with built-in firmware
+          CONFIG_WLAN_VENDOR_ATH=y
+          CONFIG_ATH9K_HTC=y
+          CONFIG_CFG80211_WEXT=y
+          CONFIG_EXTRA_FIRMWARE="ath9k_htc/htc_9271-1.4.0.fw"
+          CONFIG_EXTRA_FIRMWARE_DIR="firmware"
+          EOF
+          mkdir -p firmware/ath9k_htc
+          curl -fL -o firmware/ath9k_htc/htc_9271-1.4.0.fw \
+            https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain/ath9k_htc/htc_9271-1.4.0.fw
+          ls -l firmware/ath9k_htc
+          tail -8 arch/arm64/configs/proton_defconfig
+
+      - name: Build kernel
+        run: |
+          export WP="$(realpath "$PWD/..")"
+          bash build/ckbuild.sh -cR
+
+      - name: Check the driver made it into the build
+        run: |
+          grep -E "^CONFIG_(ATH9K_HTC|WLAN_VENDOR_ATH|EXTRA_FIRMWARE)=" out/.config
+
+      - name: Upload Odin tar
+        uses: actions/upload-artifact@v4
+        with:
+          name: ProtonPlus-NetHunter-odin-tar
+          path: build/*.tar
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: log.txt
